@@ -148,7 +148,7 @@ executor values for a run. Databricks credentials come from the spec's
 `executor.auth` block or your `omnigent setup` provider config — there is
 no profile flag.
 
-## Qwen Code
+### Qwen Code
 
 `harness: qwen` runs the agent through [Qwen Code](https://github.com/QwenLM/qwen)
 (`npm install -g @qwen-code/qwen-code`). It drives the `qwen` CLI in ACP mode
@@ -162,6 +162,86 @@ executor:
 
 CLI flags such as `--harness qwen` and `--model <id>` can override or supply
 missing executor values.
+
+### OpenAI-compatible / local servers
+
+`harness: openai-agents` is the generic harness for anything speaking the
+OpenAI wire protocol. Unlike `claude-sdk` / `codex` / `pi`, it doesn't wrap a
+vendor CLI or SDK with its own execution loop — it's a bare model-calling
+client, pointed at any server that implements the OpenAI API shape. This
+makes it the harness to use for OpenAI itself, an OpenAI-compatible gateway,
+**or a locally-hosted model** — e.g. a GGUF file served by
+[`llama.cpp`](https://github.com/ggml-org/llama.cpp)'s `llama-server`,
+[Ollama](https://ollama.com/), or LM Studio, all of which expose an
+OpenAI-compatible endpoint.
+
+```yaml
+# llama-server (default port 8080)
+executor:
+  harness: openai-agents
+  model: <model id/alias your server reports>
+  auth:
+    type: api_key
+    api_key: "local"                       # see note on api_key below
+    base_url: "http://localhost:8080/v1"   # llama-server default
+  config:
+    use_responses: false                   # required for /chat/completions-only servers
+```
+
+**`api_key`** — set to any non-empty string (e.g. `"local"` or
+`"not-needed"`). The OpenAI SDK requires a value even when the server
+doesn't authenticate. Some servers (e.g. vLLM with `--api-key`) do validate
+the key — use the actual key in those cases.
+
+**`model`** should match whatever identifier the server reports — query
+`GET /v1/models` (`curl http://localhost:8080/v1/models`) if you're not sure
+what to put here. Most single-model local servers (like `llama-server`)
+accept any value and just answer with the model they have loaded. For
+multi-model servers like Ollama, `model` must exactly match a model you have
+pulled (e.g. `llama3.2:latest`); an unrecognised name 404s. Run `ollama list`
+or query `GET /v1/models` to see available names.
+
+**`use_responses`** controls whether the harness talks to the newer
+`/responses` endpoint or the older `/chat/completions` endpoint. The default
+is dynamic:
+
+- **OpenAI models and non-Databricks endpoints** — defaults to `true`
+  (`/responses`).
+- **Databricks-hosted non-GPT models** (e.g. `databricks-claude-*`,
+  `databricks-kimi-*`) — defaults to `false` (`/chat/completions`),
+  because only GPT serving on the Databricks gateway speaks the Responses
+  wire.
+
+Most local OpenAI-compatible servers (`llama-server`, Ollama, LM Studio,
+etc.) only implement `/chat/completions`. 
+
+**Environment-variable alternative** — you can skip the `auth:` block
+entirely and set the standard OpenAI SDK variables in your shell:
+
+```bash
+export OPENAI_BASE_URL="http://localhost:8080/v1"
+export OPENAI_API_KEY="local"
+```
+
+The harness falls back to these when no explicit auth is declared.
+`auth.base_url` (which maps to `HARNESS_OPENAI_AGENTS_GATEWAY_BASE_URL`
+internally) takes priority over `OPENAI_BASE_URL` when both are set.
+
+Unlike the CLI-wrapped harnesses, `openai-agents` has no file/shell tools of
+its own — there's no underlying CLI to inherit them from. If your agent
+needs to read/write files or run commands, you must declare `os_env`
+explicitly (see [Local OS access](#local-os-access) below); without it, the
+model has no way to touch the filesystem no matter how capable it is.
+
+Also worth knowing when working with local models specifically: tool/function
+-calling reliability varies a lot by model and quantization. If `os_env`
+tools are declared and available but the model still doesn't seem to use
+them, that's more often a model-capability limitation than a configuration
+problem — check whether your specific GGUF build/quant is documented as
+supporting tool calling before assuming the harness setup is wrong.
+Streaming is enabled by default. Most local servers support it, but if you
+see broken or incomplete responses, verify your server's SSE streaming
+support.
 
 ## Local OS access
 
