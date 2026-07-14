@@ -254,6 +254,7 @@ _PROVIDER_DISPLAY_NAME: dict[str, str] = {
     "google": "Google Gemini",
     "databricks": "Databricks",
     "ollama": "Ollama",
+    "llama-server": "Llama-Server",
 }
 
 
@@ -460,7 +461,7 @@ def add_menu_options() -> list[AddOption]:
         # Cross-vendor extras, alphabetical (Gateway before OpenRouter).
         _opt(
             "Gateway — custom base URL + key (e.g. OpenRouter)",
-            "An OpenAI/Anthropic-compatible proxy: LiteLLM, Ollama, OpenRouter, vLLM, …",
+            "An OpenAI/Anthropic-compatible proxy: LiteLLM, Ollama, Llama-Server, OpenRouter, vLLM, …",
             GATEWAY_KIND,
         ),
         _opt(
@@ -884,9 +885,9 @@ def build_gateway_provider_entry(
     """Build a ``kind: gateway`` provider entry body (config shape).
 
     A gateway is an OpenAI/Anthropic-compatible proxy reached at a custom
-    ``base_url`` (OpenRouter, LiteLLM, a local Ollama). It may serve the
-    ``openai`` family, the ``anthropic`` family, or both — each family
-    gets its own block pointing at the same base_url + key.
+    ``base_url`` (OpenRouter, LiteLLM, a local Ollama, a local Llama-Server). 
+    It may serve the ``openai`` family, the ``anthropic`` family, or both — each 
+    family gets its own block pointing at the same base_url + key.
 
     :param base_url: The gateway base URL, e.g.
         ``"https://openrouter.ai/api/v1"``.

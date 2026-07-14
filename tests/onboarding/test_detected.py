@@ -240,6 +240,27 @@ def test_synthesize_local_ollama() -> None:
     assert entries["ollama"]["kind"] == "local"
     # The OpenAI-compatible path is appended to the detected host.
     assert entries["ollama"]["openai"]["base_url"] == "http://localhost:11434/v1"
+    # Pinned to Chat Completions: these self-hosted servers don't implement
+    # the Responses API, so wire_api must not fall back to that default.
+    assert entries["ollama"]["openai"]["wire_api"] == "chat"
+    assert entries["ollama"]["openai"]["api_key"] == "local"
+
+
+def test_synthesize_local_llama_server() -> None:
+    """A reachable llama-server becomes a ``local`` openai-family entry with /v1.
+
+    Mirrors ``test_synthesize_local_ollama`` — the ``local`` kind's synthesis
+    is generic over the detected host, so llama-server (a different default
+    port, same OpenAI-compatible shape) goes through the identical path.
+    """
+    det = DetectedProvider(
+        name="llama-server", kind="local", family=OPENAI_FAMILY, source="http://localhost:8080"
+    )
+    entries = synthesize_detected_entries([det])
+    assert entries["llama-server"]["kind"] == "local"
+    assert entries["llama-server"]["openai"]["base_url"] == "http://localhost:8080/v1"
+    assert entries["llama-server"]["openai"]["wire_api"] == "chat"
+    assert entries["llama-server"]["openai"]["api_key"] == "local"
 
 
 def test_effective_merges_and_auto_defaults_per_family() -> None:

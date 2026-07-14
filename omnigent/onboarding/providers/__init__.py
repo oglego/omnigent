@@ -211,6 +211,7 @@ def _list_provider_names() -> list[str]:
             "nscale",
             "oci",
             "ollama",
+            "llama-server",
             "openai",
             "openrouter",
             "ovhcloud",
@@ -284,6 +285,7 @@ COMMON_PROVIDERS: list[str] = [
     "deepseek",
     "openrouter",
     "ollama",
+    "llama-server",
     "together_ai",
     "cohere",
     "fireworks_ai",
@@ -730,6 +732,7 @@ _PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "deepseek": "DeepSeek",
     "openrouter": "OpenRouter",
     "ollama": "Ollama",
+    "llama-server": "Llama Server",
 }
 
 

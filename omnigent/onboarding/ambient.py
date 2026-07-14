@@ -70,6 +70,17 @@ _OLLAMA_URL = f"http://{_OLLAMA_HOST}:{_OLLAMA_PORT}"
 # when nothing is listening.
 _OLLAMA_PROBE_TIMEOUT = 0.25
 
+# llama.cpp's llama-server default OpenAI-compatible endpoint. Mirrors the
+# Ollama probe above; llama-server has no auth of its own (any placeholder
+# key works), so the same "local" detection kind applies.
+_LLAMA_SERVER_HOST = "localhost"
+_LLAMA_SERVER_PORT = 8080
+_LLAMA_SERVER_URL = f"http://{_LLAMA_SERVER_HOST}:{_LLAMA_SERVER_PORT}"
+
+# Timeout (seconds) for the llama-server TCP probe. Same rationale as
+# ``_OLLAMA_PROBE_TIMEOUT``.
+_LLAMA_SERVER_PROBE_TIMEOUT = 0.25
+
 # Maps each provider whose env key we surface to the served model family.
 # Providers absent here (or mapped to ``None``) are reported with
 # ``family=None`` — their key is detected but no harness surface is
@@ -617,6 +628,25 @@ def _ollama_reachable() -> bool:
         return False
 
 
+def _llama_server_reachable() -> bool:
+    """Return whether a local llama-server accepts TCP connections.
+
+    Performs a single short-timeout connect to ``localhost:8080`` (llama.cpp's
+    ``llama-server`` default port). Mirrors :func:`_ollama_reachable` — isolated
+    in its own helper so tests can monkeypatch it without real network I/O.
+
+    :returns: ``True`` when ``localhost:8080`` accepts a TCP connection,
+        ``False`` on refusal, timeout, or any socket error.
+    """
+    try:
+        with socket.create_connection(
+            (_LLAMA_SERVER_HOST, _LLAMA_SERVER_PORT), timeout=_LLAMA_SERVER_PROBE_TIMEOUT
+        ):
+            return True
+    except OSError:
+        return False
+
+
 def detect_providers() -> list[DetectedProvider]:
     """Detect credentials already present on the machine.
 
@@ -638,10 +668,12 @@ def detect_providers() -> list[DetectedProvider]:
     4. A logged-in Codex CLI (``~/.codex/auth.json`` exists *and* carries a
        usable credential — see :func:`codex_auth_has_credential`).
     5. A reachable local Ollama (``localhost:11434`` TCP-connectable).
+    6. A reachable local llama-server (``localhost:8080`` TCP-connectable).
 
-    No network I/O is performed except the single Ollama probe (see
-    :func:`_ollama_reachable`). On macOS, a ``claude auth status`` subprocess
-    may run as the Claude Keychain fallback (see :func:`_claude_login_detected`).
+    No network I/O is performed except the Ollama and llama-server probes
+    (see :func:`_ollama_reachable` / :func:`_llama_server_reachable`). On
+    macOS, a ``claude auth status`` subprocess may run as the Claude
+    Keychain fallback (see :func:`_claude_login_detected`).
 
     :returns: One :class:`DetectedProvider` per credential found, in the
         priority order above. Empty when nothing is detected.
@@ -735,6 +767,19 @@ def detect_providers() -> list[DetectedProvider]:
                 kind=LOCAL_KIND,
                 family=OPENAI_FAMILY,
                 source=_OLLAMA_URL,
+            )
+        )
+
+    # 6. Local llama-server. Independent of the Ollama probe above — both can
+    #    be running at once (different default ports), so this is an
+    #    additional detection, not a fallback.
+    if _llama_server_reachable():
+        detected.append(
+            DetectedProvider(
+                name="llama-server",
+                kind=LOCAL_KIND,
+                family=OPENAI_FAMILY,
+                source=_LLAMA_SERVER_URL,
             )
         )
 

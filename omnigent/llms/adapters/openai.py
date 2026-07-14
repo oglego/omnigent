@@ -1,7 +1,7 @@
 """
 OpenAI and OpenAI-compatible provider adapter.
 
-Handles OpenAI, Groq, DeepSeek, xAI, OpenRouter, and Ollama — any
+Handles OpenAI, Groq, DeepSeek, xAI, OpenRouter, Ollama, and Llama-Server — any
 provider that speaks the OpenAI Chat Completions API format.
 """
 
