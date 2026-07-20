@@ -3,6 +3,8 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Agent } from "@/hooks/useAgents";
+import { resetShowThinkingStoreForTesting } from "@/hooks/useShowThinking";
+import { readShowThinking, writeShowThinking } from "@/lib/thinkingVisibilityPreferences";
 import { useChatStore } from "@/store/chatStore";
 
 // Mock the policies data layer so SessionPoliciesSection and AddPolicyDialog
@@ -406,6 +408,39 @@ describe("AgentInfoButton version footer", () => {
     // Popover still opens (agent name proves it) — just no version footer.
     expect(screen.getByText("Databricks_coding_agent")).toBeInTheDocument();
     expect(screen.queryByTestId("agent-info-versions")).toBeNull();
+  });
+});
+
+describe("AgentInfoButton show-thinking toggle", () => {
+  afterEach(() => {
+    writeShowThinking(false);
+    resetShowThinkingStoreForTesting();
+  });
+
+  it("is off by default and flips the persisted preference on click", () => {
+    renderButtonWithSession(AGENT_WITH_BOTH, "conv_thinking");
+    fireEvent.click(screen.getByTestId("agent-info-trigger"));
+
+    const toggle = screen.getByTestId("agent-info-show-thinking-toggle");
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(readShowThinking()).toBe(false);
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(readShowThinking()).toBe(true);
+  });
+
+  it("reflects a preference already persisted from a prior session", () => {
+    writeShowThinking(true);
+    resetShowThinkingStoreForTesting();
+    renderButtonWithSession(AGENT_WITH_BOTH, "conv_thinking2");
+    fireEvent.click(screen.getByTestId("agent-info-trigger"));
+
+    expect(screen.getByTestId("agent-info-show-thinking-toggle")).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
   });
 });
 

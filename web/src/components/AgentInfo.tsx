@@ -1,7 +1,7 @@
 // Agent info surface: the MCP-server and policy badges, and the
 // header info-icon popover that displays them.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   CheckIcon,
   CopyIcon,
@@ -36,6 +36,7 @@ import { isSessionSharedWithOthers } from "@/lib/permissionsApi";
 import { getCurrentUserId } from "@/lib/identity";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -56,6 +57,7 @@ import { copyText } from "@/lib/clipboard";
 import { useChatStore } from "@/store/chatStore";
 import { useServerInfo } from "@/lib/CapabilitiesContext";
 import { useSessionHostVersion } from "@/hooks/RunnerHealthProvider";
+import { useShowThinking } from "@/hooks/useShowThinking";
 
 /**
  * Display label for an agent name: the wrapper alias when mapped, else
@@ -137,6 +139,32 @@ export function McpServerList({
           </span>
         ),
       )}
+    </div>
+  );
+}
+
+/**
+ * "Show thinking" row: toggles whether reasoning blocks render inline in
+ * the chat stream. Off by default (see useShowThinking /
+ * thinkingVisibilityPreferences.ts) — matches the session info panel's
+ * existing Cost/Policies rows in placement and styling. This is a
+ * device-local display preference, not a session setting: it doesn't affect
+ * what's streamed or stored, only whether this browser renders it.
+ */
+function ShowThinkingToggle() {
+  const [showThinking, setShowThinking] = useShowThinking();
+  const labelId = useId();
+  return (
+    <div className="flex items-center justify-between gap-3 py-3">
+      <span id={labelId} className="text-sm">
+        Show thinking
+      </span>
+      <Switch
+        aria-labelledby={labelId}
+        checked={showThinking}
+        onCheckedChange={setShowThinking}
+        data-testid="agent-info-show-thinking-toggle"
+      />
     </div>
   );
 }
@@ -1294,6 +1322,7 @@ export function AgentInfoContent({ agent, sessionId }: AgentInfoProps) {
             )}
           </div>
         )}
+      {sessionId && <ShowThinkingToggle />}
       <McpServersSection sessionId={sessionId} servers={servers} editable={mcpEditable} />
       {sessionId && <SessionPoliciesSection sessionId={sessionId} />}
       {versionFooter && (
