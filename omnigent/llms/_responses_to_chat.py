@@ -311,6 +311,121 @@ def _extract_delta_content(
     return "".join(text_pieces), "".join(reasoning_pieces)
 
 
+class _InlineThinkTagSplitter:
+    """
+    Splits raw ``<think>...</think>`` tags out of plain-string content
+    deltas, buffering across chunk boundaries.
+
+    Some local/self-hosted reasoning models (DeepSeek-R1-distill, QwQ,
+    Qwen3 in thinking mode, ...) are commonly served through a bare
+    OpenAI-compatible endpoint — a plain ``llama-server``, LM Studio, or
+    similar — that does *not* split reasoning into a separate
+    ``reasoning_content`` field the way DeepSeek's own API (or a
+    reasoning-aware proxy) does. The whole ``<think>...</think>`` block
+    instead arrives as literal text inside ``delta.content``.
+
+    Feeding content through this splitter recovers the same
+    ``(text, reasoning)`` split that :func:`_extract_delta_content` gets
+    for free from typed content blocks, so this reasoning still surfaces
+    as a ``ResponseReasoningTextDeltaEvent`` — and is rendered (or
+    hidden) by the web UI's "show thinking" toggle like any other
+    reasoning model — instead of leaking raw ``<think>`` tags into the
+    visible answer. See omnigent-ai/omnigent#2180.
+
+    Only looks for an opening ``<think>`` tag before any real answer
+    text has been seen, matching how these models actually behave
+    (reasoning, when present, always comes first in the response). Once
+    answer text starts, the splitter stops scanning for tags and passes
+    the rest of the stream through unchanged — this keeps a literal
+    "<think>" that legitimately appears later in an answer from being
+    misinterpreted as the start of a reasoning block.
+    """
+
+    _OPEN = "<think>"
+    _CLOSE = "</think>"
+
+    def __init__(self) -> None:
+        self._in_think = False
+        self._seen_answer_text = False
+        self._buffer = ""
+
+    def feed(self, chunk: str) -> tuple[str, str]:
+        """
+        Feed the next plain-text content delta.
+
+        :param chunk: The next piece of ``delta.content`` text.
+        :returns: A pair ``(text, reasoning)`` — the portions of *chunk*
+            (plus any tag fragment buffered from a previous call) that
+            should be surfaced as answer text and as reasoning,
+            respectively. Either may be empty.
+        """
+        if self._seen_answer_text and not self._in_think:
+            # Already past the reasoning phase (if there was one) — the
+            # rest of the stream is just answer text.
+            return chunk, ""
+
+        data = self._buffer + chunk
+        self._buffer = ""
+        text_out: list[str] = []
+        reasoning_out: list[str] = []
+
+        while data:
+            tag = self._CLOSE if self._in_think else self._OPEN
+            idx = data.find(tag)
+
+            if idx == -1:
+                # No full tag in what we have. The tail might be the
+                # start of one split across a chunk boundary — hold it
+                # back rather than emitting it as content.
+                keep = _partial_tag_suffix_len(data, tag)
+                head, self._buffer = (data[:-keep], data[-keep:]) if keep else (data, "")
+                if self._in_think:
+                    reasoning_out.append(head)
+                else:
+                    text_out.append(head)
+                    if head.strip():
+                        self._seen_answer_text = True
+                data = ""
+                continue
+
+            head, data = data[:idx], data[idx + len(tag) :]
+            if self._in_think:
+                reasoning_out.append(head)
+                self._in_think = False
+            else:
+                text_out.append(head)
+                if head.strip():
+                    self._seen_answer_text = True
+                else:
+                    self._in_think = True
+
+            if self._seen_answer_text and not self._in_think:
+                # Answer has started — stop scanning the remainder of
+                # this chunk for tags, treat it all as plain text.
+                text_out.append(data)
+                data = ""
+
+        return "".join(text_out), "".join(reasoning_out)
+
+
+def _partial_tag_suffix_len(data: str, tag: str) -> int:
+    """
+    Length of the longest suffix of *data* that is a proper (non-empty,
+    non-full) prefix of *tag* — i.e. text that might be the start of
+    *tag* split across a chunk boundary, and so should be buffered
+    rather than emitted as content yet.
+
+    :param data: The text scanned so far.
+    :param tag: The full tag being watched for, e.g. ``"<think>"``.
+    :returns: Number of trailing characters of *data* to hold back, or
+        ``0`` if none of its suffixes could be the start of *tag*.
+    """
+    for length in range(min(len(data), len(tag) - 1), 0, -1):
+        if tag.startswith(data[-length:]):
+            return length
+    return 0
+
+
 async def chat_stream_to_response_events(
     chunks: AsyncIterator[dict[str, Any]],
     model: str,
@@ -339,6 +454,11 @@ async def chat_stream_to_response_events(
     # current reasoning run; reset when a text delta arrives (reasoning
     # is always prepended before the answer).
     reasoning_started = False
+    # Recovers reasoning from raw inline <think>...</think> tags that some
+    # bare local-model servers emit directly in plain-string content
+    # deltas (no structured reasoning_content field). See
+    # _InlineThinkTagSplitter for why this is needed.
+    think_splitter = _InlineThinkTagSplitter()
 
     async for chunk in chunks:
         choices = chunk.get("choices") or []
@@ -366,7 +486,10 @@ async def chat_stream_to_response_events(
         # (Kimi and some Databricks models use typed blocks).
         content = delta.get("content")
         if content is not None:
-            text, reasoning = _extract_delta_content(content)
+            if isinstance(content, str):
+                text, reasoning = think_splitter.feed(content)
+            else:
+                text, reasoning = _extract_delta_content(content)
             if reasoning:
                 if not reasoning_started:
                     yield ResponseReasoningStartedEvent()

@@ -20,6 +20,7 @@ import { defaultRemarkPlugins } from "streamdown";
 import remarkBreaks from "remark-breaks";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ZoomableImage } from "@/components/ImageLightbox";
+import { useShowThinking } from "@/hooks/useShowThinking";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
 import type { RenderItem } from "@/lib/renderItems";
 import type { SessionStatus } from "@/lib/types";
@@ -309,6 +310,10 @@ type ToolRunFragment =
 export function BlockRenderer({ items, sessionStatus }: BlockRendererProps) {
   const rendered: ReactNode[] = [];
   let previousRenderedItemWasText = false;
+  // Off by default (see thinkingVisibilityPreferences.ts) — reasoning items
+  // still arrive and are counted below for streaming-state purposes; this
+  // only gates whether the "reasoning" case renders anything.
+  const [showThinking] = useShowThinking();
   const isAgentActive = sessionStatus === "running" || sessionStatus === "waiting";
   const streamingRunStart = isAgentActive ? findStreamingRunStart(items) : -1;
   // Reasoning is "currently streaming" iff the agent is live AND this
@@ -363,7 +368,7 @@ export function BlockRenderer({ items, sessionStatus }: BlockRendererProps) {
     }
 
     const followsText = item.kind === "text" && previousRenderedItemWasText;
-    rendered.push(renderItem(item, i, i === reasoningStreamingIdx, followsText));
+    rendered.push(renderItem(item, i, i === reasoningStreamingIdx, followsText, showThinking));
     previousRenderedItemWasText = item.kind === "text";
   }
 
@@ -491,6 +496,7 @@ function renderItem(
   index: number,
   isReasoningStreaming: boolean,
   followsText = false,
+  showThinking = false,
 ): ReactNode {
   const key = keyFor(item, index);
   switch (item.kind) {
@@ -505,6 +511,11 @@ function renderItem(
         </div>
       );
     case "reasoning":
+      // Gated by the "show thinking" preference (default off) — see
+      // useShowThinking / thinkingVisibilityPreferences.ts. The reasoning
+      // item itself is still counted elsewhere (e.g. reasoningStreamingIdx)
+      // regardless of this flag; only its rendering is suppressed.
+      if (!showThinking) return null;
       return (
         <ReasoningView
           key={key}

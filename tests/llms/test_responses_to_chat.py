@@ -710,6 +710,134 @@ async def test_grok_top_level_reasoning_content_streams() -> None:
     assert completed.response.output[0].content[0].text == "42"
 
 
+# ── _InlineThinkTagSplitter / raw inline <think> tags ──────────────
+
+
+@pytest.mark.asyncio
+async def test_inline_think_tag_in_single_chunk() -> None:
+    """
+    Bare local-model servers (e.g. a plain llama-server or LM Studio
+    instance fronting DeepSeek-R1-distill / QwQ / Qwen3-thinking GGUFs)
+    emit the whole ``<think>...</think>`` block as literal text inside
+    ``delta.content`` rather than a structured ``reasoning_content``
+    field. It should still surface as reasoning, not leak into the
+    answer.
+    """
+    chunks = [
+        {
+            "choices": [
+                {
+                    "delta": {"content": "<think>Okay, let me work through this.</think>42"},
+                    "finish_reason": None,
+                }
+            ]
+        },
+        {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+    ]
+    events = [
+        e async for e in chat_stream_to_response_events(_aiter(chunks), model="local/deepseek-r1")
+    ]
+
+    reasoning_started = [e for e in events if isinstance(e, ResponseReasoningStartedEvent)]
+    reasoning_deltas = [e for e in events if isinstance(e, ResponseReasoningTextDeltaEvent)]
+    text_deltas = [e for e in events if isinstance(e, ResponseTextDeltaEvent)]
+    completed = events[-1]
+
+    assert len(reasoning_started) == 1
+    assert "".join(e.delta for e in reasoning_deltas) == "Okay, let me work through this."
+    assert "".join(e.delta for e in text_deltas) == "42"
+    assert isinstance(completed, ResponseCompletedEvent)
+    # Reasoning is hidden from the assembled response text — only the
+    # answer is included.
+    assert completed.response.output[0].content[0].text == "42"
+
+
+@pytest.mark.asyncio
+async def test_inline_think_tag_split_across_chunks() -> None:
+    """The opening/closing tags themselves may be split across chunks."""
+    chunks = [
+        {"choices": [{"delta": {"content": "<thi"}, "finish_reason": None}]},
+        {"choices": [{"delta": {"content": "nk>Reasoning here</thi"}, "finish_reason": None}]},
+        {"choices": [{"delta": {"content": "nk>Answer text"}, "finish_reason": None}]},
+        {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+    ]
+    events = [e async for e in chat_stream_to_response_events(_aiter(chunks), model="local/qwq")]
+
+    reasoning_deltas = [e for e in events if isinstance(e, ResponseReasoningTextDeltaEvent)]
+    text_deltas = [e for e in events if isinstance(e, ResponseTextDeltaEvent)]
+
+    assert "".join(e.delta for e in reasoning_deltas) == "Reasoning here"
+    assert "".join(e.delta for e in text_deltas) == "Answer text"
+
+
+@pytest.mark.asyncio
+async def test_no_think_tag_passes_through_unchanged() -> None:
+    """A model that never emits a think tag streams as plain answer text."""
+    chunks = [
+        {"choices": [{"delta": {"content": "The sky is "}, "finish_reason": None}]},
+        {"choices": [{"delta": {"content": "blue."}, "finish_reason": None}]},
+        {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+    ]
+    events = [
+        e async for e in chat_stream_to_response_events(_aiter(chunks), model="local/gemma")
+    ]
+
+    reasoning_deltas = [e for e in events if isinstance(e, ResponseReasoningTextDeltaEvent)]
+    text_deltas = [e for e in events if isinstance(e, ResponseTextDeltaEvent)]
+
+    assert reasoning_deltas == []
+    assert "".join(e.delta for e in text_deltas) == "The sky is blue."
+
+
+@pytest.mark.asyncio
+async def test_literal_angle_bracket_text_not_mistaken_for_think_tag() -> None:
+    """
+    A literal "<think" substring that's part of real answer text (not a
+    reasoning model at all) should not be swallowed — it passes through
+    once real answer content has already started.
+    """
+    chunks = [
+        {"choices": [{"delta": {"content": "Use <thinking-cap> as the class name."}}]},
+        {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+    ]
+    events = [e async for e in chat_stream_to_response_events(_aiter(chunks), model="local/gemma")]
+
+    reasoning_deltas = [e for e in events if isinstance(e, ResponseReasoningTextDeltaEvent)]
+    text_deltas = [e for e in events if isinstance(e, ResponseTextDeltaEvent)]
+
+    assert reasoning_deltas == []
+    assert "".join(e.delta for e in text_deltas) == "Use <thinking-cap> as the class name."
+
+
+def test_think_splitter_buffers_partial_open_tag() -> None:
+    from omnigent.llms._responses_to_chat import _InlineThinkTagSplitter
+
+    splitter = _InlineThinkTagSplitter()
+    text, reasoning = splitter.feed("<thi")
+    assert (text, reasoning) == ("", "")
+    text, reasoning = splitter.feed("nk>hello</think>world")
+    assert (text, reasoning) == ("world", "hello")
+
+
+def test_think_splitter_false_alarm_partial_tag_recovered() -> None:
+    """A buffered '<thi' that turns out not to be a real tag isn't lost."""
+    from omnigent.llms._responses_to_chat import _InlineThinkTagSplitter
+
+    splitter = _InlineThinkTagSplitter()
+    text, _reasoning = splitter.feed("<thi")
+    assert text == ""
+    text, reasoning = splitter.feed("ng about something")
+    assert text == "<thing about something"
+    assert reasoning == ""
+
+
+def test_think_splitter_no_tag_returns_input_unchanged() -> None:
+    from omnigent.llms._responses_to_chat import _InlineThinkTagSplitter
+
+    splitter = _InlineThinkTagSplitter()
+    assert splitter.feed("just plain text") == ("just plain text", "")
+
+
 # ── _extract_delta_content unit tests ──────────────────────────────
 
 

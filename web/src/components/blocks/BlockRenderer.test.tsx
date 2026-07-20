@@ -6,7 +6,9 @@ import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetShowThinkingStoreForTesting } from "@/hooks/useShowThinking";
 import type { RenderItem } from "@/lib/renderItems";
+import { writeShowThinking } from "@/lib/thinkingVisibilityPreferences";
 import { FileViewerContext } from "@/shell/FileViewerContext";
 import { BlockRenderer } from "./BlockRenderer";
 
@@ -132,29 +134,54 @@ describe("BlockRenderer dispatch", () => {
     );
   });
 
-  it("treats a trailing reasoning item as streaming when sessionStatus is running", () => {
+  describe("reasoning items (show thinking enabled)", () => {
+    // These tests exercise the reasoning→ReasoningView dispatch and the
+    // streaming-detection logic, which only matters once reasoning actually
+    // renders. The preference defaults to off (see
+    // thinkingVisibilityPreferences.ts) so it's turned on here and restored
+    // afterward to avoid leaking into other tests in this file.
+    beforeEach(() => {
+      writeShowThinking(true);
+      resetShowThinkingStoreForTesting();
+    });
+    afterEach(() => {
+      writeShowThinking(false);
+      resetShowThinkingStoreForTesting();
+    });
+
+    it("treats a trailing reasoning item as streaming when sessionStatus is running", () => {
+      const items: RenderItem[] = [
+        { kind: "reasoning", itemId: null, text: "thinking", duration: undefined },
+      ];
+      render(<BlockRenderer items={items} sessionStatus="running" />);
+      expect(screen.getByText("Thinking...")).toBeDefined();
+    });
+
+    it("does NOT treat a reasoning item as streaming when sessionStatus is idle", () => {
+      const items: RenderItem[] = [
+        { kind: "reasoning", itemId: null, text: "thinking", duration: undefined },
+      ];
+      render(<BlockRenderer items={items} sessionStatus="idle" />);
+      expect(screen.queryByText("Thinking...")).toBeNull();
+    });
+
+    it("does NOT treat reasoning as streaming once a text item follows it", () => {
+      const items: RenderItem[] = [
+        { kind: "reasoning", itemId: null, text: "thinking", duration: undefined },
+        { kind: "text", itemId: "t1", text: "hello", final: false },
+      ];
+      render(<BlockRenderer items={items} sessionStatus="running" />);
+      expect(screen.queryByText("Thinking...")).toBeNull();
+    });
+  });
+
+  it("does NOT render a reasoning item when the show-thinking preference is off (default)", () => {
     const items: RenderItem[] = [
       { kind: "reasoning", itemId: null, text: "thinking", duration: undefined },
     ];
     render(<BlockRenderer items={items} sessionStatus="running" />);
-    expect(screen.getByText("Thinking...")).toBeDefined();
-  });
-
-  it("does NOT treat a reasoning item as streaming when sessionStatus is idle", () => {
-    const items: RenderItem[] = [
-      { kind: "reasoning", itemId: null, text: "thinking", duration: undefined },
-    ];
-    render(<BlockRenderer items={items} sessionStatus="idle" />);
     expect(screen.queryByText("Thinking...")).toBeNull();
-  });
-
-  it("does NOT treat reasoning as streaming once a text item follows it", () => {
-    const items: RenderItem[] = [
-      { kind: "reasoning", itemId: null, text: "thinking", duration: undefined },
-      { kind: "text", itemId: "t1", text: "hello", final: false },
-    ];
-    render(<BlockRenderer items={items} sessionStatus="running" />);
-    expect(screen.queryByText("Thinking...")).toBeNull();
+    expect(screen.queryByText("thinking")).toBeNull();
   });
 
   it("adds subtle separation between adjacent assistant text items", async () => {
