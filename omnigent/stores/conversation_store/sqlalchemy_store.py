@@ -82,6 +82,7 @@ from omnigent.stores.conversation_store import (
     FORK_SOURCE_EXTERNAL_SESSION_LABEL_KEY,
     FORK_SOURCE_LABEL_KEY,
     PROJECT_LABEL_KEY,
+    TASK_TAG_LABEL_KEY,
     SWITCH_PREVIOUS_BUILTIN_LABEL_KEY,
     ConversationAlreadyExistsError,
     ConversationNotFoundError,
@@ -1979,6 +1980,78 @@ class SqlAlchemyConversationStore(ConversationStore):
                 .where(
                     SqlConversationLabel.workspace_id == current_workspace_id(),
                     SqlConversationLabel.key == PROJECT_LABEL_KEY,
+                    SqlConversationLabel.conversation_id.in_(non_archived_ids),
+                )
+                .distinct()
+                .order_by(SqlConversationLabel.value)
+            )
+            if permission_ids is not None:
+                stmt = stmt.where(SqlConversationLabel.conversation_id.in_(permission_ids))
+            return [row[0] for row in ap_sess.execute(stmt).all()]
+
+    def list_tags(
+        self,
+        accessible_by: str | None = None,
+        owned_by: str | None = None,
+    ) -> list[str]:
+        """
+        Return all distinct task tags in use, ordered alphabetically.
+
+        Same query shape as :meth:`list_projects` over
+        ``TASK_TAG_LABEL_KEY`` instead of ``PROJECT_LABEL_KEY`` — see
+        that method's docstring for the ACL-filter behavior of
+        ``accessible_by`` / ``owned_by``. Tags have no delete-on-empty
+        collection semantics (unlike projects), so this is a plain
+        distinct-value read with no analog to "Delete project".
+
+        :param accessible_by: When set, restrict to sessions that
+            ``accessible_by`` has a permission row for.
+        :param owned_by: When set, restrict to tags that appear on at
+            least one session ``owned_by`` owns (an ``owner``-level grant).
+        :returns: List of tag names ordered ascending.
+        """
+        from omnigent.server.auth import LEVEL_OWNER
+
+        permission_ids: list[str] | None = None
+        if accessible_by is not None or owned_by is not None:
+            with self._session() as meta_sess:
+                accessible_set: set[str] | None = None
+                owned_set: set[str] | None = None
+                if accessible_by is not None:
+                    accessible_set = set(
+                        meta_sess.execute(
+                            select(SqlSessionPermission.conversation_id).where(
+                                SqlSessionPermission.workspace_id == current_workspace_id(),
+                                SqlSessionPermission.user_id == accessible_by,
+                            )
+                        ).scalars()
+                    )
+                if owned_by is not None:
+                    owned_set = set(
+                        meta_sess.execute(
+                            select(SqlSessionPermission.conversation_id).where(
+                                SqlSessionPermission.workspace_id == current_workspace_id(),
+                                SqlSessionPermission.user_id == owned_by,
+                                SqlSessionPermission.level >= LEVEL_OWNER,
+                            )
+                        ).scalars()
+                    )
+                if accessible_set is not None and owned_set is not None:
+                    permission_ids = list(accessible_set & owned_set)
+                else:
+                    permission_ids = list(
+                        accessible_set if accessible_set is not None else owned_set or set()
+                    )
+        with self._conv_session() as ap_sess:
+            non_archived_ids = select(SqlConversation.id).where(
+                SqlConversation.workspace_id == current_workspace_id(),
+                SqlConversation.archived.is_(False),
+            )
+            stmt = (
+                select(SqlConversationLabel.value)
+                .where(
+                    SqlConversationLabel.workspace_id == current_workspace_id(),
+                    SqlConversationLabel.key == TASK_TAG_LABEL_KEY,
                     SqlConversationLabel.conversation_id.in_(non_archived_ids),
                 )
                 .distinct()

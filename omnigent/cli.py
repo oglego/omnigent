@@ -6570,6 +6570,10 @@ _CONTINUE_HELP = "Continue the most recent conversation for this agent."
 _NO_SESSION_HELP = "Use a fresh temporary local session store for this run."
 
 _FORK_HELP = "Fork an existing session by id and open the REPL on the fork."
+_TAG_HELP = (
+    "Tag this session with a free-form label (e.g. 'bugfix', 'refactor'). "
+    "Stored as a session label; can also be set later with /tag."
+)
 _LOG_HELP = "Write a JSON dump of the conversation to ~/.omnigent/logs/ on exit."
 
 
@@ -7045,6 +7049,7 @@ def _dispatch_run(
     resume_latest: bool = False,
     resume_conversation_id: str | None = None,
     fork_session_id: str | None = None,
+    task_tag: str | None = None,
     ephemeral: bool = False,
     log: bool = False,
     debug_events: bool = False,
@@ -7173,6 +7178,7 @@ def _dispatch_run(
                 resume_latest=resume_latest,
                 resume_picker=resume_picker,
                 fork_session_id=fork_session_id,
+                task_tag=task_tag,
                 log=log,
                 debug_events=debug_events,
                 resume_parts=resume_parts,
@@ -7320,6 +7326,7 @@ def _dispatch_run(
         resume_latest=resume_latest,
         resume_picker=resume_picker,
         fork_session_id=fork_session_id,
+        task_tag=task_tag,
         log=log,
         debug_events=debug_events,
         resume_parts=resume_parts,
@@ -7496,6 +7503,7 @@ def attach(
     "-c", "--continue", "resume_latest", is_flag=True, default=False, help=_CONTINUE_HELP
 )
 @click.option("--fork", "fork_session_id", default=None, help=_FORK_HELP)
+@click.option("--tag", "task_tag", default=None, help=_TAG_HELP)
 @click.option("--no-session", "ephemeral", is_flag=True, default=False, help=_NO_SESSION_HELP)
 @click.option("--log/--no-log", "log", default=False, help=_LOG_HELP)
 @click.option(
@@ -7540,6 +7548,7 @@ def run(
     resume: str | None,
     resume_latest: bool,
     fork_session_id: str | None,
+    task_tag: str | None,
     ephemeral: bool,
     log: bool,
     server: str | None,
@@ -7641,6 +7650,7 @@ def run(
         resume_latest=resume_latest,
         resume_conversation_id=choice.conversation_id,
         fork_session_id=fork_session_id,
+        task_tag=task_tag,
         ephemeral=ephemeral,
         log=log,
         debug_events=debug_events,

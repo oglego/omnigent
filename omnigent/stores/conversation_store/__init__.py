@@ -84,6 +84,15 @@ CODEX_NATIVE_BYPASS_SANDBOX_LABEL_KEY = "omnigent.codex_native.bypass_sandbox"
 # and the web client mirrors the literal as ``PROJECT_LABEL_KEY``.
 PROJECT_LABEL_KEY = "omni_project"
 
+# Reserved label key that stores a free-form task tag on a session (e.g.
+# "bugfix", "refactor"), set via ``omnigent run --tag`` or the ``/tag``
+# in-session command. Unlike PROJECT_LABEL_KEY this is single-valued per
+# session (one tag, not a list) — retagging overwrites rather than appends.
+# Namespaced for the same reasons as PROJECT_LABEL_KEY: avoid collisions
+# with user-facing label surfaces, and both the SQLAlchemy store and the
+# server route import this literal rather than hardcoding it.
+TASK_TAG_LABEL_KEY = "omni_task_tag"
+
 # Labels that must NOT cross into a new session context — deliberately
 # dropped both when forking (not copied to the clone) and on an in-place
 # agent switch (deleted from the switched session). Two distinct reasons
@@ -854,6 +863,31 @@ class ConversationStore(ABC):
             project owned by someone else — but with a session shared to
             the user — from appearing as one of the user's own folders.
         :returns: List of project names ordered alphabetically.
+        """
+        ...
+
+    @abstractmethod
+    def list_tags(
+        self,
+        accessible_by: str | None = None,
+        owned_by: str | None = None,
+    ) -> list[str]:
+        """
+        Return all distinct task tags in use, ordered ascending.
+
+        Mirrors :meth:`list_projects` but over ``TASK_TAG_LABEL_KEY``
+        instead of ``PROJECT_LABEL_KEY``. Unlike projects, a tag is not
+        an implicit collection with delete-on-empty semantics — it is
+        just whatever distinct values currently exist on non-archived
+        sessions, useful for scorecard-style grouping and ``--tag``
+        autocomplete.
+
+        :param accessible_by: When set, restrict to tags on sessions
+            the user has a permission row for. ``None`` returns tags
+            across all sessions.
+        :param owned_by: When set, restrict to tags that appear on at
+            least one session the user owns.
+        :returns: List of tag names ordered alphabetically.
         """
         ...
 

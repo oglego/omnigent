@@ -271,6 +271,7 @@ def run_chat(
     resume_latest: bool = False,
     resume_picker: bool = False,
     fork_session_id: str | None = None,
+    task_tag: str | None = None,
     log: bool = False,
     debug_events: bool = False,
     resume_parts: list[str] | None = None,
@@ -399,6 +400,7 @@ def run_chat(
             initial_message=prompt,
             resume_conversation_id=resume_conversation_id,
             fork_session_id=fork_session_id,
+            task_tag=task_tag,
             debug_events=debug_events,
             resume_parts=resume_parts,
             skills=host_skills or None,
@@ -423,6 +425,7 @@ def run_chat(
             resume_latest=resume_latest,
             resume_picker=resume_picker,
             fork_session_id=fork_session_id,
+            task_tag=task_tag,
             log=log,
             debug_events=debug_events,
             resume_parts=resume_parts,
@@ -448,6 +451,7 @@ def run_chat(
             resume_latest=resume_latest,
             resume_picker=resume_picker,
             fork_session_id=fork_session_id,
+            task_tag=task_tag,
             log=log,
             debug_events=debug_events,
             resume_parts=resume_parts,
@@ -860,6 +864,7 @@ def _chat_with_server(
     initial_message: str | None = None,
     resume_conversation_id: str | None = None,
     fork_session_id: str | None = None,
+    task_tag: str | None = None,
     agent_name: str | None = None,
     runner_id: str | None = None,
     runner_recover: Callable[[], str] | None = None,
@@ -993,6 +998,7 @@ def _chat_with_server(
         initial_message=initial_message,
         resume_conversation_id=resume_conversation_id,
         fork_session_id=fork_session_id,
+        task_tag=task_tag,
         log=log,
         agent_yaml=agent_yaml,
         runner_id=runner_id,
@@ -1642,6 +1648,7 @@ async def _prepare_chat_session_via_daemon(
     bundle: bytes,
     resume_conversation_id: str | None,
     fork_session_id: str | None,
+    task_tag: str | None,
     workspace: str,
     progress: RunnerStartupProgress | None = None,
 ) -> _DaemonChatSession:
@@ -1663,6 +1670,10 @@ async def _prepare_chat_session_via_daemon(
         or ``None`` to create a fresh session.
     :param fork_session_id: When set, fork this session and bind the runner
         to the fork; takes precedence over *resume_conversation_id*.
+    :param task_tag: When set (and this is a fresh create, not a fork or
+        resume), stored as the session's ``TASK_TAG_LABEL_KEY`` label.
+        Ignored for fork/resume — the existing session's tag, if any, is
+        left as-is.
     :param workspace: Absolute host path for the runner cwd, e.g.
         ``"/Users/me/proj"``.
     :param progress: Optional startup-progress handle whose label is
@@ -1686,6 +1697,7 @@ async def _prepare_chat_session_via_daemon(
         wait_for_runner_online,
     )
     from omnigent.native_terminal import bind_session_runner
+    from omnigent.stores.conversation_store import TASK_TAG_LABEL_KEY
 
     async with OmnigentClient(base_url=base_url, headers=headers, auth=auth) as sdk:
         if fork_session_id is not None:
@@ -1695,7 +1707,10 @@ async def _prepare_chat_session_via_daemon(
             session_id = resume_conversation_id
         else:
             created = await sdk.sessions.create(
-                bundle, filename="agent.tar.gz", workspace=workspace
+                bundle,
+                filename="agent.tar.gz",
+                workspace=workspace,
+                labels={TASK_TAG_LABEL_KEY: task_tag} if task_tag else None,
             )
             session_id = created.id
 
@@ -1736,6 +1751,7 @@ def _chat_via_daemon(
     resume_latest: bool = False,
     resume_picker: bool = False,
     fork_session_id: str | None = None,
+    task_tag: str | None = None,
     log: bool = False,
     debug_events: bool = False,
     resume_parts: list[str] | None = None,
@@ -1844,6 +1860,7 @@ def _chat_via_daemon(
                     bundle=bundle_bytes,
                     resume_conversation_id=effective_resume_id,
                     fork_session_id=fork_session_id,
+                    task_tag=task_tag,
                     workspace=workspace,
                     progress=progress,
                 )
@@ -2056,6 +2073,7 @@ def _chat_local(
     resume_latest: bool = False,
     resume_picker: bool = False,
     fork_session_id: str | None = None,
+    task_tag: str | None = None,
     log: bool = False,
     debug_events: bool = False,
     resume_parts: list[str] | None = None,
@@ -2155,6 +2173,7 @@ def _chat_local(
                 resume_conversation_id=effective_resume_id,
                 runner_id=server.runner_id,
                 fork_session_id=fork_session_id,
+                task_tag=task_tag,
                 log=log,
                 agent_yaml=spec_path,
                 session_bundle=bundle_bytes,
@@ -3825,6 +3844,7 @@ def _run_repl(
     initial_message: str | None = None,
     resume_conversation_id: str | None = None,
     fork_session_id: str | None = None,
+    task_tag: str | None = None,
     log: bool = False,
     agent_yaml: Path | None = None,
     runner_id: str | None = None,
@@ -3999,6 +4019,7 @@ def _run_repl(
                 tool_handler,
                 initial_message=initial_message,
                 resume_conversation_id=effective_resume_id,
+                task_tag=task_tag,
                 log_dir=log_dir,
                 debug_events=debug_events,
                 server_log_path=server_log_path,

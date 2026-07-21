@@ -68,6 +68,7 @@ from rich.markup import escape
 from rich.text import Text
 
 from omnigent.spec.types import SkillSpec
+from omnigent.stores.conversation_store import TASK_TAG_LABEL_KEY
 
 if TYPE_CHECKING:
     from omnigent.server.schemas import SessionStatusEvent
@@ -1695,6 +1696,17 @@ class _SessionsChatReplAdapter:
                     # ck_conversations_workspace_required_for_host
                     # constraint isn't active.
                     workspace=os.getcwd(),
+                    # Set post-construction (see _task_tag assignment at
+                    # the call site in run_repl()), same as
+                    # _server_log_path/_runner_log_path — not an __init__
+                    # param, so getattr with a default covers callers
+                    # that never set it (e.g. tests constructing the
+                    # adapter directly).
+                    labels=(
+                        {TASK_TAG_LABEL_KEY: getattr(self, "_task_tag", None)}
+                        if getattr(self, "_task_tag", None)
+                        else None
+                    ),
                 )
                 self._session_id = session.id
                 self._hydrate_from_session_snapshot(session)
@@ -2961,6 +2973,7 @@ async def run_repl(
     agent_description: str | None = None,
     used_families: list[str] | None = None,
     attach_only: bool = False,
+    task_tag: str | None = None,
 ) -> str | None:
     """The entire REPL — using the framework.
 
@@ -3155,6 +3168,7 @@ async def run_repl(
     # /logs without broadening the slash-command dispatch signature.
     session._server_log_path = server_log_path  # type: ignore[attr-defined]
     session._runner_log_path = runner_log_path  # type: ignore[attr-defined]
+    session._task_tag = task_tag  # type: ignore[attr-defined]
 
     # True once any TextDelta has been rendered for the current
     # turn. Used to suppress the duplicate full-text that arrives
