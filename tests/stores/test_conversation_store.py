@@ -4807,6 +4807,113 @@ def test_list_projects_owned_by_excludes_shared_only_projects(
     assert conversation_store.list_projects(owned_by="alice@example.com") == ["Mine"]
 
 
+# ── Task Tags (conversation_labels key="omni_task_tag") ───────
+
+
+def test_list_tags_returns_distinct_names_sorted(
+    conversation_store: SqlAlchemyConversationStore,
+) -> None:
+    """``list_tags`` returns each distinct task tag once, ordered
+    alphabetically."""
+    from omnigent.stores.conversation_store import TASK_TAG_LABEL_KEY
+
+    a1 = conversation_store.create_conversation()
+    a2 = conversation_store.create_conversation()
+    b1 = conversation_store.create_conversation()
+    conversation_store.create_conversation()  # untagged
+
+    conversation_store.set_labels(a1.id, {TASK_TAG_LABEL_KEY: "bugfix"})
+    conversation_store.set_labels(a2.id, {TASK_TAG_LABEL_KEY: "bugfix"})
+    conversation_store.set_labels(b1.id, {TASK_TAG_LABEL_KEY: "refactor"})
+
+    assert conversation_store.list_tags() == ["bugfix", "refactor"]
+
+
+def test_list_tags_empty_when_no_tag_labels(
+    conversation_store: SqlAlchemyConversationStore,
+) -> None:
+    """Non-tag labels never surface as tags."""
+    conv = conversation_store.create_conversation()
+    conversation_store.set_labels(conv.id, {"integrity": "1", "omni_project": "X"})
+    assert conversation_store.list_tags() == []
+
+
+def test_list_tags_excludes_all_archived_tags(
+    conversation_store: SqlAlchemyConversationStore,
+) -> None:
+    """Tags only appear if they are on at least one non-archived session."""
+    from omnigent.stores.conversation_store import TASK_TAG_LABEL_KEY
+
+    solo = conversation_store.create_conversation()
+    mix_archived = conversation_store.create_conversation()
+    mix_active = conversation_store.create_conversation()
+
+    conversation_store.set_labels(solo.id, {TASK_TAG_LABEL_KEY: "Gone"})
+    conversation_store.set_labels(mix_archived.id, {TASK_TAG_LABEL_KEY: "Mixed"})
+    conversation_store.set_labels(mix_active.id, {TASK_TAG_LABEL_KEY: "Mixed"})
+
+    conversation_store.update_conversation(solo.id, archived=True)
+    conversation_store.update_conversation(mix_archived.id, archived=True)
+
+    assert conversation_store.list_tags() == ["Mixed"]
+
+    conversation_store.update_conversation(solo.id, archived=False)
+    assert conversation_store.list_tags() == ["Gone", "Mixed"]
+
+
+def test_list_tags_scoped_by_accessible_by(
+    conversation_store: SqlAlchemyConversationStore,
+    db_uri: str,
+) -> None:
+    """When ``accessible_by`` is set, only tags on sessions the user can access are returned."""
+    from omnigent.stores.permission_store.sqlalchemy_store import (
+        SqlAlchemyPermissionStore,
+    )
+    from omnigent.stores.conversation_store import TASK_TAG_LABEL_KEY
+
+    mine = conversation_store.create_conversation()
+    theirs = conversation_store.create_conversation()
+    conversation_store.set_labels(mine.id, {TASK_TAG_LABEL_KEY: "Mine"})
+    conversation_store.set_labels(theirs.id, {TASK_TAG_LABEL_KEY: "Theirs"})
+
+    perms = SqlAlchemyPermissionStore(db_uri)
+    for user in ("alice@example.com", "bob@example.com"):
+        perms.ensure_user(user)
+    perms.grant("alice@example.com", mine.id, 4)
+    perms.grant("bob@example.com", theirs.id, 4)
+
+    assert conversation_store.list_tags(accessible_by="alice@example.com") == ["Mine"]
+
+
+def test_list_tags_owned_by_excludes_shared_only_tags(
+    conversation_store: SqlAlchemyConversationStore,
+    db_uri: str,
+) -> None:
+    """``owned_by`` restricts to tags the user OWNS."""
+    from omnigent.stores.permission_store.sqlalchemy_store import (
+        SqlAlchemyPermissionStore,
+    )
+    from omnigent.stores.conversation_store import TASK_TAG_LABEL_KEY
+
+    mine = conversation_store.create_conversation()
+    shared = conversation_store.create_conversation()
+    conversation_store.set_labels(mine.id, {TASK_TAG_LABEL_KEY: "Mine"})
+    conversation_store.set_labels(shared.id, {TASK_TAG_LABEL_KEY: "Shared"})
+
+    perms = SqlAlchemyPermissionStore(db_uri)
+    for user in ("alice@example.com", "bob@example.com"):
+        perms.ensure_user(user)
+    perms.grant("bob@example.com", mine.id, 4)
+    perms.grant("alice@example.com", mine.id, 4)
+    perms.grant("bob@example.com", shared.id, 4)
+    perms.grant("alice@example.com", shared.id, 1)
+
+    assert conversation_store.list_tags(accessible_by="alice@example.com") == [
+        "Mine",
+        "Shared",
+    ]
+    assert conversation_store.list_tags(owned_by="alice@example.com") == ["Mine"]
+
 def test_list_conversations_owned_by_excludes_shared_sessions(
     conversation_store: SqlAlchemyConversationStore,
     db_uri: str,
