@@ -115,4 +115,23 @@ ACP_CLI_HARNESSES: dict[str, AcpCliHarness] = {
         args=("agent", "stdio"),
         aliases=("grok-build",),
     ),
+    # OpenHands (the ``openhands`` CLI) drives ``openhands acp``. Ships via
+    # ``uv tool install`` or a curl installer and authenticates via first-run
+    # prompts (saving to ``~/.openhands/settings.json``); Omnigent stores no
+    # credential.
+    "openhands": AcpCliHarness(
+        install=HarnessInstallSpec(
+            "OpenHands",
+            "openhands",
+            None,
+            login_args=None,
+            install_hint="curl -fsSL https://install.openhands.dev/install.sh | sh",
+            auth_hint=(
+                "run `openhands` once to configure your LLM provider "
+                "(Omnigent stores no OpenHands credential)"
+            ),
+        ),
+        args=("acp",),
+        aliases=("oh",),
+    ),
 }
